@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Setup</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 500px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f7fa;
+            color: #333;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 { font-size: 24px; text-align: center; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"], input[type="password"] {
+            width: 100%; padding: 12px; border: 1px solid #ccc;
+            border-radius: 6px; box-sizing: border-box; font-size: 16px;
+        }
+        button {
+            width: 100%; padding: 14px; background: #007aff;
+            color: white; border: none; border-radius: 6px;
+            font-size: 16px; font-weight: bold; cursor: pointer;
+            margin-bottom: 10px;
+        }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #status {
+            margin-top: 20px; padding: 15px; border-radius: 6px;
+            background: #eef2f5; font-size: 14px; word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>Device Setup</h1>
+    
+    <button id="btnConnect">1. Connect to Bluetooth Device</button>
+    
+    <div id="setupForm" style="display:none; margin-top:20px;">
+        <div class="form-group">
+            <label>Device Name</label>
+            <input type="text" id="inputName" placeholder="e.g., esp32s3n16r8_01">
+        </div>
+        <div class="form-group">
+            <label>Product Code</label>
+            <input type="text" id="inputProd" placeholder="e.g., PROD-001">
+        </div>
+        <div class="form-group">
+            <label>Wi-Fi SSID</label>
+            <input type="text" id="inputSsid" placeholder="e.g., MyHomeNetwork">
+        </div>
+        <div class="form-group">
+            <label>Wi-Fi Password</label>
+            <input type="password" id="inputPass" placeholder="Enter password">
+        </div>
+        <button id="btnSend" style="background:#28a745;">Send Configuration & Reboot</button>
+        <button id="btnCancel" style="background:#dc3545; margin-top:10px;">Cancel / Disconnect</button>
+    </div>
+
+    <div id="status">Status: Waiting...</div>
+</div>
+
+<script>
+    const SERVICE_UUID = "5fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const CHAR_SSID_UUID = "aeb5483e-36e1-4688-b7f5-ea07361b26a8";
+    const CHAR_PASS_UUID = "aeb5483e-36e1-4688-b7f5-ea07361b26a9";
+    const CHAR_NAME_UUID = "aeb5483e-36e1-4688-b7f5-ea07361b26aa";
+    const CHAR_PROD_UUID = "aeb5483e-36e1-4688-b7f5-ea07361b26ac";
+    const CHAR_CTRL_UUID = "aeb5483e-36e1-4688-b7f5-ea07361b26ab";
+
+    let bluetoothDevice;
+    let server;
+    let ssidChar, passChar, nameChar, prodChar, ctrlChar;
+
+    const btnConnect = document.getElementById('btnConnect');
+    const btnSend = document.getElementById('btnSend');
+    const btnCancel = document.getElementById('btnCancel');
+    const statusDiv = document.getElementById('status');
+    const setupForm = document.getElementById('setupForm');
+
+    function log(msg) {
+        console.log(msg);
+        statusDiv.innerText = msg;
+    }
+
+    btnConnect.addEventListener('click', async () => {
+        try {
+            log('Searching for Bluetooth devices...');
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'IMESP' }, { namePrefix: 'AIWATCHER' }],
+                optionalServices: [SERVICE_UUID]
+            });
+
+            log(`Connecting to: ${bluetoothDevice.name}...`);
+            server = await bluetoothDevice.gatt.connect();
+
+            log('Discovering service...');
+            const service = await server.getPrimaryService(SERVICE_UUID);
+
+            log('Discovering characteristics...');
+            ssidChar = await service.getCharacteristic(CHAR_SSID_UUID);
+            passChar = await service.getCharacteristic(CHAR_PASS_UUID);
+            nameChar = await service.getCharacteristic(CHAR_NAME_UUID);
+            prodChar = await service.getCharacteristic(CHAR_PROD_UUID);
+            ctrlChar = await service.getCharacteristic(CHAR_CTRL_UUID);
+
+            log('Reading current device configuration...');
+            try {
+                const nameData = await nameChar.readValue();
+                const nameStr = new TextDecoder().decode(nameData);
+                if (!nameStr.includes("(empty")) {
+                    document.getElementById('inputName').value = nameStr;
+                }
+            } catch(e) { console.log("Failed to read name:", e); }
+
+            try {
+                const prodData = await prodChar.readValue();
+                const prodStr = new TextDecoder().decode(prodData);
+                if (!prodStr.includes("(empty")) {
+                    document.getElementById('inputProd').value = prodStr;
+                }
+            } catch(e) { console.log("Failed to read product code:", e); }
+
+            log('Connected successfully! Please enter your configuration.');
+            btnConnect.style.display = 'none';
+            setupForm.style.display = 'block';
+
+        } catch (error) {
+            log('Connection failed: ' + error);
+        }
+    });
+
+    btnSend.addEventListener('click', async () => {
+        const devName = document.getElementById('inputName').value;
+        const prodCode = document.getElementById('inputProd').value;
+        const ssid = document.getElementById('inputSsid').value;
+        const pass = document.getElementById('inputPass').value;
+
+        if (!ssid || !devName) {
+            alert("Device Name and SSID are required.");
+            return;
+        }
+
+        try {
+            btnSend.disabled = true;
+            btnSend.innerText = "Sending...";
+
+            const encoder = new TextEncoder();
+
+            // 1. Clear buffers
+            log('1. Clearing device buffers...');
+            await ctrlChar.writeValue(new Uint8Array([0x00]));
+
+            // 2. Device Name
+            log('2. Sending Device Name...');
+            await nameChar.writeValue(encoder.encode(devName));
+
+            // 3. Product Code
+            if (prodCode) {
+                log('3. Sending Product Code...');
+                await prodChar.writeValue(encoder.encode(prodCode));
+            }
+
+            // 4. SSID
+            log('4. Sending Wi-Fi SSID...');
+            await ssidChar.writeValue(encoder.encode(ssid));
+
+            // 5. Password
+            if (pass) {
+                log('5. Sending Wi-Fi Password...');
+                await passChar.writeValue(encoder.encode(pass));
+            }
+
+            // 6. Commit and Reboot
+            log('6. Saving configuration and rebooting...');
+            await ctrlChar.writeValue(new Uint8Array([0x01]));
+
+            log('✅ Success! Device will now reboot and connect to Wi-Fi.');
+            
+        } catch (error) {
+            log('Error during transmission: ' + error);
+            btnSend.disabled = false;
+            btnSend.innerText = "Send Configuration & Reboot";
+        }
+    });
+
+    btnCancel.addEventListener('click', () => {
+        if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+            bluetoothDevice.gatt.disconnect();
+            log('Transfer cancelled (Disconnected).');
+        }
+        btnConnect.style.display = 'block';
+        setupForm.style.display = 'none';
+        btnSend.disabled = false;
+        btnSend.innerText = "Send Configuration & Reboot";
+    });
+</script>
+
+</body>
+</html>
