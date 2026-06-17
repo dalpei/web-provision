@@ -186,7 +186,7 @@
             await ctrlChar.writeValue(new Uint8Array([0x01]));
 
             log('✅ Success! Device will now reboot and connect to Wi-Fi.');
-            
+            btnSend.innerText = "Sent Successfully!";
         } catch (error) {
             log('Error during transmission: ' + error);
             btnSend.disabled = false;
