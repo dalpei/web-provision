@@ -97,7 +97,7 @@
         try {
             log('Searching for Bluetooth devices...');
             bluetoothDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ namePrefix: 'IMESP' }, { namePrefix: 'AIWATCHER' }],
+                filters: [{ namePrefix: 'IM' }, { namePrefix: 'AI' }],
                 optionalServices: [SERVICE_UUID]
             });
 
